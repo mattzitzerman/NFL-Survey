@@ -34,16 +34,13 @@ MARKET_COLORS = {
 # ============================================================
 @st.cache_data
 def load_data(file):
-    # Read file — skip the first 2 rows (title and subtitle)
     if file.name.endswith(".xlsx"):
         df = pd.read_excel(file, skiprows=2)
     else:
         df = pd.read_csv(file, skiprows=2)
 
-    # Strip whitespace from column names
     df.columns = df.columns.str.strip()
 
-    # Identify Question and Response columns
     col_lower = {c.lower(): c for c in df.columns}
 
     question_col = None
@@ -60,32 +57,24 @@ def load_data(file):
     if response_col is None:
         response_col = df.columns[1]
 
-    # Rename to standard names
     df = df.rename(columns={question_col: "Question", response_col: "Response"})
 
-    # Forward-fill the Question column
     df["Question"] = df["Question"].ffill()
 
-    # Remove fully empty rows
     df = df.dropna(subset=["Response"], how="all")
     df = df[df["Response"].notna()]
     df["Response"] = df["Response"].astype(str).str.strip()
 
-    # Remove "Base (answered)" rows
     df = df[df["Response"].str.lower() != "base (answered)"]
 
-    # Identify market columns (those ending with %)
     market_cols = [c for c in df.columns if "%" in c and "total" not in c.lower()]
 
-    # Clean percentage columns
     for col in market_cols:
         df[col] = df[col].astype(str).str.replace("%", "").str.strip()
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Clean question text
     df["Question"] = df["Question"].astype(str).str.strip()
 
-    # Create clean market display names (remove the " %")
     market_display = {}
     for col in market_cols:
         clean_name = col.replace(" %", "").replace("%", "").strip()
@@ -98,13 +87,11 @@ def load_data(file):
 # HELPER FUNCTIONS
 # ============================================================
 def calculate_nps(df, market_cols, market_display):
-    """Calculate NPS from the Detractor/Passive/Promoter question"""
     nps_q = df[df["Response"].isin(["Detractor", "Passive", "Promoter"])]
 
     if len(nps_q) == 0:
         return None
 
-    # Get the "recommend" question specifically
     recommend_q = nps_q[nps_q["Question"].str.lower().str.contains("recommend", na=False)]
     if len(recommend_q) == 0:
         recommend_q = nps_q
@@ -121,7 +108,6 @@ def calculate_nps(df, market_cols, market_display):
 
 
 def calculate_csat(df, market_cols, market_display):
-    """Calculate CSAT from the satisfaction question"""
     sat_q = df[df["Question"].str.lower().str.contains("satisfied", na=False)]
     sat_categorical = sat_q[sat_q["Response"].isin(["Detractor", "Passive", "Promoter"])]
 
@@ -154,7 +140,6 @@ if uploaded_file is None:
 
 df, market_cols, market_display = load_data(uploaded_file)
 
-# Market filter
 available_markets = [market_display[col] for col in market_cols]
 selected_market_names = st.sidebar.multiselect(
     "Select Markets to Compare",
@@ -162,7 +147,6 @@ selected_market_names = st.sidebar.multiselect(
     default=available_markets
 )
 
-# Reverse lookup: display name -> column name
 display_to_col = {v: k for k, v in market_display.items()}
 selected_cols = [display_to_col[m] for m in selected_market_names if m in display_to_col]
 
@@ -179,7 +163,6 @@ st.title("🏈 NFL Game Pass International Survey")
 st.markdown("*Insights from NFL GPI subscriber survey across global markets*")
 st.markdown("---")
 
-# NPS & CSAT Scores
 nps_scores = calculate_nps(df, market_cols, market_display)
 csat_scores = calculate_csat(df, market_cols, market_display)
 
@@ -201,6 +184,7 @@ with col_nps:
                 color_continuous_scale=["#e74c3c", "#f39c12", "#2ecc71"],
                 color_continuous_midpoint=0
             )
+            fig_nps.update_traces(texttemplate='%{x:.1f}', textposition='outside', textfont_size=10)
             fig_nps.update_layout(
                 margin=dict(t=20, b=20),
                 yaxis_title="", xaxis_title="Net Promoter Score",
@@ -208,7 +192,7 @@ with col_nps:
                 height=400
             )
             fig_nps.add_vline(x=0, line_dash="dash", line_color="gray")
-            st.plotly_chart(fig_nps, use_container_width=True)
+            st.plotly_chart(fig_nps, use_container_width=True, key="nps_overview")
 
 with col_csat:
     if csat_scores:
@@ -226,6 +210,7 @@ with col_csat:
                 color_continuous_scale=["#e74c3c", "#f39c12", "#2ecc71"],
                 color_continuous_midpoint=0
             )
+            fig_csat.update_traces(texttemplate='%{x:.1f}', textposition='outside', textfont_size=10)
             fig_csat.update_layout(
                 margin=dict(t=20, b=20),
                 yaxis_title="", xaxis_title="CSAT Score (Promoter % - Detractor %)",
@@ -233,7 +218,7 @@ with col_csat:
                 height=400
             )
             fig_csat.add_vline(x=0, line_dash="dash", line_color="gray")
-            st.plotly_chart(fig_csat, use_container_width=True)
+            st.plotly_chart(fig_csat, use_container_width=True, key="csat_overview")
 
 st.markdown("---")
 
@@ -270,14 +255,16 @@ if len(fandom_questions) > 0:
         melted, x="Response", y="Percentage", color="Market",
         barmode="group",
         color_discrete_map=MARKET_COLORS,
-        height=500
+        height=600
     )
+    if len(selected_market_names) <= 4:
+        fig_fandom.update_traces(texttemplate='%{y:.1f}%', textposition='outside', textfont_size=9)
     fig_fandom.update_layout(
         xaxis_title="", yaxis_title="Percentage (%)",
-        xaxis_tickangle=-45, margin=dict(t=20, b=100),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.35)
+        xaxis_tickangle=-45, margin=dict(t=40, b=100),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_fandom, use_container_width=True)
+    st.plotly_chart(fig_fandom, use_container_width=True, key="fandom_chart")
 
 st.markdown("---")
 
@@ -314,7 +301,7 @@ if len(heat_data) > 0 and len(selected_cols) > 0:
             xaxis_title="", yaxis_title="",
             height=max(300, len(heat_matrix) * 45)
         )
-        st.plotly_chart(fig_heat, use_container_width=True)
+        st.plotly_chart(fig_heat, use_container_width=True, key="heatmap_chart")
 
 st.markdown("---")
 
@@ -353,28 +340,30 @@ if len(comp_data) > 0 and len(selected_cols) > 0:
             melted_comp, x="Response", y="Percentage", color="Market",
             barmode="group",
             color_discrete_map=MARKET_COLORS,
-            height=500
+            height=600
         )
+        if len(selected_market_names) <= 4:
+            fig_comp.update_traces(texttemplate='%{y:.1f}%', textposition='outside', textfont_size=9)
         fig_comp.update_layout(
             xaxis_title="", yaxis_title="Percentage (%)",
-            xaxis_tickangle=-45, margin=dict(t=20, b=100),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.35)
+            xaxis_tickangle=-45, margin=dict(t=40, b=100),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
         )
-        st.plotly_chart(fig_comp, use_container_width=True)
+        st.plotly_chart(fig_comp, use_container_width=True, key="comp_grouped")
 
     elif chart_type == "Stacked Bar":
-        fig_comp = px.bar(
+        fig_comp_stacked = px.bar(
             melted_comp, x="Market", y="Percentage", color="Response",
             barmode="stack",
             color_discrete_sequence=px.colors.qualitative.Set3,
-            height=500
+            height=600
         )
-        fig_comp.update_layout(
+        fig_comp_stacked.update_layout(
             xaxis_title="", yaxis_title="Percentage (%)",
-            margin=dict(t=20, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.3)
+            margin=dict(t=40, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
         )
-        st.plotly_chart(fig_comp, use_container_width=True)
+        st.plotly_chart(fig_comp_stacked, use_container_width=True, key="comp_stacked")
 
     elif chart_type == "Radar":
         responses = comp_data["Response"].unique().tolist()
@@ -399,9 +388,9 @@ if len(comp_data) > 0 and len(selected_cols) > 0:
             polar=dict(radialaxis=dict(visible=True)),
             margin=dict(t=40, b=40),
             height=500,
-            legend=dict(orientation="h", yanchor="bottom", y=-0.2)
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
         )
-        st.plotly_chart(fig_radar, use_container_width=True)
+        st.plotly_chart(fig_radar, use_container_width=True, key="comp_radar")
 
     with st.expander("📋 View Data Table"):
         display_data = comp_data[["Response"] + selected_cols].copy()
@@ -445,7 +434,6 @@ if len(nps_numeric) > 0:
 
     nps_melted["Category"] = nps_melted["Score"].apply(nps_category)
 
-    # Global average distribution
     global_col_name = None
     for m in selected_market_names:
         if "global" in m.lower():
@@ -463,29 +451,32 @@ if len(nps_numeric) > 0:
                     "Passive (7-8)": "#f39c12",
                     "Promoter (9-10)": "#2ecc71"
                 },
-                height=400,
+                height=450,
                 title=f"NPS Distribution — {global_col_name}"
             )
+            fig_nps_dist.update_traces(texttemplate='%{y:.1f}%', textposition='outside', textfont_size=9)
             fig_nps_dist.update_layout(
                 xaxis_title="Score", yaxis_title="Percentage (%)",
-                margin=dict(t=40, b=20)
+                margin=dict(t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
             )
-            st.plotly_chart(fig_nps_dist, use_container_width=True)
+            st.plotly_chart(fig_nps_dist, use_container_width=True, key="nps_dist_single")
 
-    # All markets
     st.subheader("NPS Score Distribution — All Selected Markets")
     fig_nps_all = px.bar(
         nps_melted, x="Score", y="Percentage", color="Market",
         barmode="group",
         color_discrete_map=MARKET_COLORS,
-        height=500
+        height=600
     )
+    if len(selected_market_names) <= 4:
+        fig_nps_all.update_traces(texttemplate='%{y:.1f}%', textposition='outside', textfont_size=9)
     fig_nps_all.update_layout(
         xaxis_title="Score (0-10)", yaxis_title="Percentage (%)",
-        margin=dict(t=20, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.25)
+        margin=dict(t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_nps_all, use_container_width=True)
+    st.plotly_chart(fig_nps_all, use_container_width=True, key="nps_dist_all")
 
 st.markdown("---")
 
@@ -498,7 +489,6 @@ st.markdown("*Responses where a market significantly differs from the Global Ave
 
 threshold = st.slider("Difference threshold (percentage points)", 5, 30, 15)
 
-# Find the global average column
 global_col = None
 for col in market_cols:
     if "global" in col.lower() or "average" in col.lower():
@@ -565,14 +555,16 @@ if len(explore_data) > 0 and len(selected_cols) > 0:
         melted_explore, x="Response", y="Percentage", color="Market",
         barmode="group",
         color_discrete_map=MARKET_COLORS,
-        height=450
+        height=600
     )
+    if len(selected_market_names) <= 4:
+        fig_explore.update_traces(texttemplate='%{y:.1f}%', textposition='outside', textfont_size=9)
     fig_explore.update_layout(
         xaxis_title="", yaxis_title="Percentage (%)",
-        xaxis_tickangle=-45, margin=dict(t=20, b=100),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.4)
+        xaxis_tickangle=-45, margin=dict(t=40, b=100),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_explore, use_container_width=True)
+    st.plotly_chart(fig_explore, use_container_width=True, key="explorer_chart")
 
 
 # ============================================================
